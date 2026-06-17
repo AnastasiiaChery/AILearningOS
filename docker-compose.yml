@@ -37,7 +37,9 @@ services:
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
-      EMBEDDING_MODEL: sentence-transformers/all-MiniLM-L6-v2
+      # Embedding model/dimension/prefixes are driven by app/core/config.py so they
+      # can never drift apart (a stray EMBEDDING_MODEL env override here would
+      # silently shadow config and the collection dimension wouldn't match).
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - "8000:8000"
@@ -48,13 +50,21 @@ services:
         condition: service_started
     volumes:
       - uploaded_files:/app/uploads
+      # HF model cache on a named volume so it survives container recreation and
+      # is shared with one-off `docker compose run` containers (e.g. the eval
+      # reingest), which otherwise re-download the embedder every time.
+      - hf_cache:/root/.cache/huggingface
       # Dev: mount source for hot-reload (edits apply without rebuild)
       - ./backend/app:/app/app
       - ./backend/alembic:/app/alembic
       - ./backend/tests:/app/tests
+    # No --reload: it reloads the whole process (re-loading torch + the embedder
+    # and cross-encoder models) on every file change → memory spike / OOM, and
+    # it doesn't even fire reliably on macOS bind-mounts. Apply code edits with
+    # `docker compose restart backend` instead.
     command: >
       sh -c "uv run alembic upgrade head &&
-             uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+             uv run uvicorn app.main:app --host 0.0.0.0 --port 8000"
     restart: on-failure
 
   frontend:
@@ -72,3 +82,4 @@ volumes:
   postgres_data:
   qdrant_data:
   uploaded_files:
+  hf_cache:

@@ -26,22 +26,35 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
 
     # Embeddings
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    embedding_dimension: int = 384
+    # Multilingual (Track C, exp.1): the corpus is Ukrainian, so an English-only
+    # encoder (all-MiniLM-L6-v2) gave weak dense recall. e5-base is multilingual,
+    # 768d, max_seq_length 512. Changing the model/dimension requires recreating
+    # the Qdrant collection + re-ingest (see app/eval/reingest.py).
+    embedding_model: str = "intfloat/multilingual-e5-base"
+    embedding_dimension: int = 768
+    # e5 was trained with instruction prefixes: queries must be prefixed with
+    # "query: " and passages with "passage: ". Skipping them measurably degrades
+    # retrieval. For prefix-free models (e.g. MiniLM) set both to "".
+    embedding_query_prefix: str = "query: "
+    embedding_passage_prefix: str = "passage: "
 
     # RAG
     retrieval_top_k: int = 5
     # Max tokens per chunk. Hard-capped in the chunker to the embedding model's
-    # max_seq_length (all-MiniLM-L6-v2 = 256). Lower this for sharper, more
-    # granular retrieval; raise (up to 256) for more context per chunk.
+    # max_seq_length (e5-base = 512; clamped further by this value). Lower this
+    # for sharper, more granular retrieval; raise for more context per chunk.
+    # Kept at 256 so chunk granularity matches the MiniLM baseline (only the
+    # encoder changes) — the effective cap is min(chunk_size, max_seq)-16.
     chunk_size: int = 256
     chunk_overlap: int = 48
 
     # Reranking (stage 2): pull N candidates from hybrid search, cross-encode,
     # keep retrieval_top_k. Set rerank_enabled=False to compare against raw RRF.
+    # mmarco-mMiniLMv2 is a multilingual cross-encoder (vs the English-only
+    # ms-marco-MiniLM, which actively hurt on the Ukrainian corpus — see Module 5).
     rerank_enabled: bool = True
     rerank_candidates: int = 20
-    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
 
     # App
     upload_dir: str = "/app/uploads"

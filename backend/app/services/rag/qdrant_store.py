@@ -83,11 +83,11 @@ async def upsert_chunks(
     file_type: str,
     chunk_ids: list[uuid.UUID],
 ) -> None:
-    from app.services.rag.embedder import aembed_texts
+    from app.services.rag.embedder import aembed_passages
 
     client = get_qdrant_client()
     texts = [c.content for c in chunks]
-    dense_vecs = await aembed_texts(texts)
+    dense_vecs = await aembed_passages(texts)
 
     points = []
     for chunk, dense, chunk_id in zip(chunks, dense_vecs, chunk_ids):
