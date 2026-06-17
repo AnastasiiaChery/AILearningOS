@@ -38,3 +38,40 @@ def test_full_coverage_no_text_dropped():
     # first and last tokens of the section must both survive somewhere
     assert "word0" in joined
     assert "word999" in joined
+
+
+# --- Recursive boundary-aware splitting (Track C, exp.3) -------------------
+
+def test_recursive_keeps_sentences_intact():
+    """With recursive chunking every sentence survives whole in some chunk —
+    no phrase is cut mid-sentence (the failure mode of the token window)."""
+    sentences = [f"Речення номер {i} описує важливу ідею про бекенд." for i in range(40)]
+    text = "# Тема\n\n" + " ".join(sentences)
+    chunks = chunk_markdown(text)
+    assert len(chunks) > 1, "should split into multiple chunks"
+    for s in sentences:
+        assert any(s in c.content for c in chunks), f"sentence broken: {s!r}"
+
+
+def test_recursive_overlap_carries_whole_unit():
+    """Overlap lands on a sentence edge: a boundary sentence reappears at the
+    start of the next chunk, never a fragment."""
+    sentences = [f"Унікальне речення {i} про окрему тему {i}." for i in range(60)]
+    text = "# T\n\n" + " ".join(sentences)
+    chunks = chunk_markdown(text)
+    assert len(chunks) >= 2
+    shared = any(
+        s in a.content and s in b.content
+        for a, b in zip(chunks, chunks[1:])
+        for s in sentences
+    )
+    assert shared, "no whole sentence shared across a chunk boundary (overlap)"
+
+
+def test_recursive_respects_model_limit():
+    """The recursive path must honor the same hard token cap as the baseline."""
+    long_section = "# Title\n\n" + ("гібридний пошук поєднує щільні та розріджені вектори. " * 200)
+    chunks = chunk_markdown(long_section)
+    assert len(chunks) > 1
+    for c in chunks:
+        assert count_tokens(c.content) <= 256

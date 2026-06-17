@@ -48,6 +48,15 @@ class Settings(BaseSettings):
     chunk_size: int = 256
     chunk_overlap: int = 48
 
+    # Chunking strategy (Track C, exp.3): how a section's text is cut.
+    #   "recursive" – split at natural boundaries (paragraph → line → sentence),
+    #                 greedily packed to the token budget with whole-unit
+    #                 overlap. Never cuts a phrase mid-sentence unless one
+    #                 sentence alone exceeds the model limit. Default.
+    #   "token"     – legacy sliding window over raw token ids (Modules 1–7
+    #                 baseline). Kept for reproducible before/after comparison.
+    chunking_strategy: str = "recursive"
+
     # HyDE (Track C, exp.2): Hypothetical Document Embeddings. Before searching,
     # an LLM writes a hypothetical answer to the query; we embed THAT for the
     # dense side instead of the short raw question — a fabricated passage lives

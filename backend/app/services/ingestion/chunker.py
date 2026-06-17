@@ -78,6 +78,94 @@ def _split_by_tokens(text: str, max_tokens: int, overlap_tokens: int) -> list[st
     return chunks or [text]
 
 
+# --- Recursive boundary-aware splitting (Track C, exp.3) -------------------
+#
+# The token sliding window above is blunt: it cuts at arbitrary token offsets,
+# slicing through the middle of a sentence — even a word. A query's answer can
+# end up straddling two chunks, with neither holding the whole thought. The
+# recursive splitter instead cuts at the *coarsest natural boundary that fits*
+# (blank line → newline → sentence end), then greedily packs whole units up to
+# the token budget. A phrase is split only when a single sentence alone exceeds
+# the model limit, where the token window is the sole safe fallback.
+
+# Sentence boundary: a sentence-final mark followed by whitespace. Good enough
+# for our prose corpus (UK/EN); abbreviations may over-split, which is harmless
+# — units are only re-packed, never dropped.
+_SENTENCE_RE = r"(?<=[.!?…])\s+"
+# Recursion order, coarsest first.
+_SEPARATORS = (r"\n\s*\n", r"\n", _SENTENCE_RE)
+
+
+def _atomize(text: str, max_tokens: int, overlap_tokens: int) -> list[str]:
+    """Break text into units that each fit in ``max_tokens``.
+
+    Try separators coarsest-first; a separator only "fires" if it actually
+    splits the text into more than one non-empty part, otherwise fall through
+    to the next finer one. A blob with no usable boundary that is still too
+    long is cut by the token window (the only guarantee of the hard cap).
+    Every returned unit is <= max_tokens.
+    """
+    text = text.strip()
+    if not text:
+        return []
+    if count_tokens(text) <= max_tokens:
+        return [text]
+    for pattern in _SEPARATORS:
+        parts = [p for p in re.split(pattern, text) if p.strip()]
+        if len(parts) > 1:
+            units: list[str] = []
+            for p in parts:
+                units.extend(_atomize(p, max_tokens, overlap_tokens))
+            return units
+    return _split_by_tokens(text, max_tokens, overlap_tokens)
+
+
+def _pack(units: list[str], max_tokens: int, overlap_tokens: int) -> list[str]:
+    """Greedily pack units into chunks <= max_tokens.
+
+    Unlike token-window overlap (which cuts mid-phrase), the carried overlap is
+    whole trailing units summing to <= overlap_tokens — so chunk boundaries and
+    their overlap both land on sentence/paragraph edges. Units are joined with a
+    single space: re-tokenizing the joined string then stays <= the per-unit
+    token sum (SentencePiece merges the leading space), so the model limit holds.
+    """
+    counted = [(u, count_tokens(u)) for u in units]
+    chunks: list[str] = []
+    cur: list[tuple[str, int]] = []
+    cur_tok = 0
+    for u, ut in counted:
+        if cur and cur_tok + ut > max_tokens:
+            chunks.append(" ".join(t for t, _ in cur))
+            # seed the next chunk with trailing units for continuity, capped so
+            # the carry plus the incoming unit still fits the budget.
+            budget = min(overlap_tokens, max_tokens - ut)
+            carry: list[tuple[str, int]] = []
+            carry_tok = 0
+            for prev in reversed(cur):
+                if carry_tok + prev[1] > budget:
+                    break
+                carry.insert(0, prev)
+                carry_tok += prev[1]
+            cur = carry
+            cur_tok = carry_tok
+        cur.append((u, ut))
+        cur_tok += ut
+    if cur:
+        chunks.append(" ".join(t for t, _ in cur))
+    return chunks
+
+
+def _split_section(text: str, max_tokens: int, overlap_tokens: int) -> list[str]:
+    """Split one section's text into chunks per the configured strategy.
+
+    ``recursive`` cuts on natural boundaries (default); ``token`` is the legacy
+    sliding window kept for reproducible before/after comparison.
+    """
+    if settings.chunking_strategy == "recursive":
+        return _pack(_atomize(text, max_tokens, overlap_tokens), max_tokens, overlap_tokens)
+    return _split_by_tokens(text, max_tokens, overlap_tokens)
+
+
 def chunk_markdown(text: str) -> list[Chunk]:
     """Split markdown text into heading-aware chunks."""
     max_tok = _effective_max_tokens()
@@ -116,7 +204,7 @@ def chunk_markdown(text: str) -> list[Chunk]:
     chunks: list[Chunk] = []
     for sec in sections:
         raw = sec["text"]
-        for piece in _split_by_tokens(raw, max_tok, overlap_tok):
+        for piece in _split_section(raw, max_tok, overlap_tok):
             if piece.strip():
                 chunks.append(
                     Chunk(
@@ -144,7 +232,7 @@ def chunk_pdf_pages(pages: list[tuple[int, str]]) -> list[Chunk]:
         page_text = page_text.strip()
         if not page_text:
             continue
-        for piece in _split_by_tokens(page_text, max_tok, overlap_tok):
+        for piece in _split_section(page_text, max_tok, overlap_tok):
             if piece.strip():
                 chunks.append(
                     Chunk(
