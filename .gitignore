@@ -1,0 +1,29 @@
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+.uv/
+dist/
+*.egg-info/
+.pytest_cache/
+
+# Node
+node_modules/
+.next/
+out/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Uploads (local dev)
+backend/uploads/
+
+# OS
+.DS_Store
+Thumbs.db
