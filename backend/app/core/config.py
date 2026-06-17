@@ -48,6 +48,15 @@ class Settings(BaseSettings):
     chunk_size: int = 256
     chunk_overlap: int = 48
 
+    # HyDE (Track C, exp.2): Hypothetical Document Embeddings. Before searching,
+    # an LLM writes a hypothetical answer to the query; we embed THAT for the
+    # dense side instead of the short raw question — a fabricated passage lives
+    # closer to real passages in vector space than a terse query does. Only the
+    # dense side uses it; sparse/BM25 keeps the original query (the hypo doc would
+    # just add keyword noise). Off by default — it's an experiment; flip on only
+    # once the eval harness shows it helps on this corpus.
+    hyde_enabled: bool = False
+
     # Reranking (stage 2): pull N candidates from hybrid search, cross-encode,
     # keep retrieval_top_k. Set rerank_enabled=False to compare against raw RRF.
     # mmarco-mMiniLMv2 is a multilingual cross-encoder (vs the English-only
