@@ -16,12 +16,21 @@ logger = logging.getLogger(__name__)
 
 
 async def hybrid_search(
-    query: str, top_k: int | None = None, rerank: bool | None = None
+    query: str,
+    top_k: int | None = None,
+    rerank: bool | None = None,
+    hyde_doc: str | None = None,
 ) -> list[dict]:
     """Two-stage retrieval: hybrid dense+sparse (RRF) → optional cross-encoder rerank.
 
     Stage 1 pulls a wider candidate set (rerank_candidates) for recall; stage 2
     re-scores those candidates and keeps top_k for precision.
+
+    HyDE (``settings.hyde_enabled`` or a caller-supplied ``hyde_doc``): the dense
+    side is embedded from a hypothetical answer passage instead of the raw query;
+    the sparse side always uses the original query. Pass ``hyde_doc`` to inject a
+    pre-generated passage (the eval harness does this to reuse one draft across
+    strategies); leave it None and the flag on to generate on the fly.
     """
     k = top_k or settings.retrieval_top_k
     do_rerank = settings.rerank_enabled if rerank is None else rerank
@@ -30,7 +39,16 @@ async def hybrid_search(
     candidate_n = settings.rerank_candidates if do_rerank else k
     client = get_qdrant_client()
 
-    dense_vec = await aembed_query(query)
+    # Dense side may search by a hypothetical doc (HyDE); sparse stays on the query.
+    dense_text = query
+    if hyde_doc is not None:
+        dense_text = hyde_doc
+    elif settings.hyde_enabled:
+        from app.services.rag.hyde import generate_hypothetical
+
+        dense_text = await generate_hypothetical(query)
+
+    dense_vec = await aembed_query(dense_text)
     sparse_vec = _build_sparse_vector(query)
 
     results = await client.query_points(

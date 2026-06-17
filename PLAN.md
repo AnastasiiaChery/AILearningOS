@@ -330,6 +330,76 @@ POST /upload → save file → Document(status=pending) → 202 response
 - [ ] Real token-level streaming (provider-native, not word-by-word)
 - [ ] Export progress as PDF report
 
+### Phase 6 — Advanced RAG & Agentic Techniques (primary technical track)
+
+The chosen learning focus: high-tech RAG/agent instruments, each measured by an eval
+number. Three tracks, run in order — A is the foundation everything else is measured
+against. See `NEXT_STEPS.md` §1–3 for task-level detail.
+
+**Track A — Eval & observability (foundation, do first)**
+- [ ] Retrieval eval harness: 15–30 (query → gold chunk) pairs → Recall@k, MRR, nDCG
+- [ ] RAGAS: faithfulness, answer_relevancy, context_precision/recall (LLM-as-judge)
+- [ ] LangSmith tracing (`LANGCHAIN_TRACING_V2`) — per-node graph traces, tokens, latency
+
+**Track C — Advanced retrieval (after A; one experiment at a time, measure each)**
+- [ ] HyDE — embed a hypothetical answer, not the bare question
+- [ ] Smart chunking — recursive / late chunking / semantic chunking (`chunker.py`)
+- [ ] Parent-document retrieval — search small chunks, feed parent/neighbor blocks to LLM
+- [ ] MMR de-dup on top-k; metadata filter on `document_id` (also enables §7-A)
+- [ ] Late-interaction (ColBERT/ColPali) via Qdrant multivector — SOTA, measure the cost
+- [ ] Optional: swap embeddings (bge/e5/gte) — dimension change → recreate collection
+
+**Track B — Agentic RAG (after A+C)**
+- [ ] Tool-calling mentor (`create_react_agent` or agent⇄tools loop) — LLM owns retrieval
+- [ ] Query decomposition — split compound questions into sub-queries
+- [ ] CRAG (Corrective RAG) — grade retrieved context, rewrite+re-retrieve on miss
+- [ ] Self-RAG / reflection loop — critique own draft, re-retrieve if unsupported
+- [ ] Measure via RAGAS (faithfulness/relevancy before/after); debug via LangSmith
+
+**New deps:** `ragas`, `langsmith` (+ ColBERT model if Track C late-interaction lands)
+**Touched:** `retriever.py`, `qdrant_store.py`, `chunker.py`, `mentor_agent.py`, `lifespan.py`
+
+### Phase 7 — Interactive Learning (application surface)
+
+Turns scattered uploads into **learning units**: collections spanning multiple documents,
+section-level quizzes, and exercises with real grading. Builds on existing fields
+(`h1/h2/h3_title` on chunks, `source_chunk_id` on questions, Qdrant payload filters) —
+mostly new endpoints + one migration, not a rewrite. See `NEXT_STEPS.md` §6 for the
+task-level breakdown and effort labels.
+
+**Naming:** the new document-grouping entity is `Collection` in code/DB (UI label: "topic"),
+to avoid colliding with the existing `PlanTopic` (a node in a plan tree). A document section
+is identified by `(document_id, heading_path)`, not a bare heading string (headings repeat
+across documents).
+
+**Sequencing:** A and B change retrieval (doc filter, section quiz) → measure quality
+*after* the eval harness (NEXT_STEPS §1). C's "explain in your own words" reuses the
+tool-calling mentor (NEXT_STEPS §2) → do it after.
+
+**A. Collections as document groups**
+- [ ] New `collections` table + `collection_documents` (many-to-many) — Alembic migration
+- [ ] `hybrid_search(..., document_ids=[...])` → Qdrant `Filter` on `document_id` payload
+- [ ] Collection-focused chat: `collection_id` on session → mentor answers only within its docs
+- [ ] `/collections` UI: create, attach documents, "Plan / Quiz / Ask" actions
+
+**B. Section-level quizzes & material**
+- [ ] `GET /knowledge/documents/{id}/outline` — table of contents from chunk headings
+- [ ] `GenerateQuizRequest` accepts `(document_id, heading_path)` → filter chunks → focused quiz
+- [ ] Populate `QuizQuestion.source_chunk_id` → clickable source citation per question
+
+**C. Interactive exercises**
+- [ ] LLM grading for `short_answer` (correct/partial/wrong + feedback) — replaces `==` compare
+- [ ] Fill-in-the-blank question type
+- [ ] "Explain in your own words" → Socratic follow-ups via mentor graph (after §2)
+- [ ] (optional) Flashcards + spaced repetition (`review_schedule` table) — do last
+
+**D. Adaptivity & progress**
+- [ ] Coverage map: link quiz attempts to section/collection → "10/14 sections, avg 78%"
+- [ ] Weak-spot detection: mentor suggests revisiting low-score sections
+
+**New tables:** `collections`, `collection_documents`, (optional) `review_schedule`
+**Touched:** `retriever.py`, `qdrant_store.py`, `quizzes.py`, `chat.py`, `progress.py`
+
 ---
 
 ## Environment Variables

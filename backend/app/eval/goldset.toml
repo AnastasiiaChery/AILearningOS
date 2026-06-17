@@ -1,0 +1,276 @@
+# =============================================================================
+# Golden set — retrieval ground truth for the eval harness.
+#
+# Each [[q]] is one question. `gold` is a list of distinctive text snippets;
+# every snippet must occur (case-insensitive, whitespace-collapsed) in the
+# chunk(s) that correctly answer the question. resolve.py maps each snippet to
+# the LIVE chunk_id(s) in Qdrant, so this set survives re-ingestion — it points
+# at *meaning*, not at a transient UUID.
+#
+# `style` is a free-text label for our own analysis, not used by scoring:
+#   keyword  – question reuses the chunk's exact terms (should favor sparse)
+#   semantic – question is paraphrased, little lexical overlap (should favor dense)
+#   mixed    – some shared terms, some paraphrase
+#
+# Validate after editing:  python -m app.eval.resolve
+# =============================================================================
+
+# ---- §1  Python internals --------------------------------------------------
+
+[[q]]
+id = "bytecode-pyc"
+file = "interviev_short.md"
+style = "keyword"
+question = "Де і в якій папці зберігається скомпільований байткод Python?"
+gold = ["__pycache__"]
+note = "Байткод кешується у .pyc файлах у папці __pycache__ для швидшого повторного запуску."
+
+[[q]]
+id = "compile-stages"
+file = "interviev_short.md"
+style = "mixed"
+question = "Через які етапи проходить Python-код від вихідника до виконання?"
+gold = ["абстрактне синтаксичне дерево"]
+note = "Парсинг → AST → компіляція в байткод → інтерпретація PVM."
+
+[[q]]
+id = "gil-cpu-threads"
+file = "interviev_short.md"
+style = "semantic"
+question = "Чому додавання потоків не прискорює важкі обчислення на процесорі в Python?"
+gold = ["один потік байткоду"]
+note = "GIL: у CPython одночасно виконується лише один потік байткоду → немає CPU-паралелізму на потоках."
+
+[[q]]
+id = "gil-cpu-workloads"
+file = "interviev_short.md"
+style = "mixed"
+question = "Для яких задач GIL заважає — рендеринг відео, ML, обробка зображень?"
+gold = ["відео-рендеринг"]
+note = "CPU-важкі задачі, де потоки борються за єдиний GIL."
+
+[[q]]
+id = "gil-bypass"
+file = "interviev_short.md"
+style = "keyword"
+question = "Якими способами обходять GIL — multiprocessing, C-розширення, Cython?"
+gold = ["pytorch, tensorflow"]
+note = "multiprocessing, C-розширення (numpy/pandas/pytorch/tensorflow), Cython, numba, async+I/O."
+
+[[q]]
+id = "async-coroutine"
+file = "interviev_short.md"
+style = "keyword"
+question = "Що створює async def і як await впливає на виконання?"
+gold = ["створює корутину"]
+note = "async def → корутина, що призупиняється/відновлюється; await віддає керування event loop."
+
+[[q]]
+id = "event-loop"
+file = "interviev_short.md"
+style = "semantic"
+question = "Що відстежує готові до роботи задачі та перемикається між ними під час очікування?"
+gold = ["постійно перевіряє"]
+note = "Event Loop: цикл, який перевіряє готові корутини, призупиняє на I/O, будить по готовності."
+
+[[q]]
+id = "threading-vs-mp"
+file = "interviev_short.md"
+style = "mixed"
+question = "Коли брати threading, а коли multiprocessing для паралелізму?"
+gold = ["кожен процес має власний GIL"]
+note = "threading → I/O-bound; multiprocessing → CPU-bound (власний GIL на процес, різні ядра)."
+
+# ---- §2  Databases ---------------------------------------------------------
+
+[[q]]
+id = "acid"
+file = "interviev_short.md"
+style = "keyword"
+question = "Що означають властивості ACID транзакції?"
+gold = ["atomicity", "durability"]
+note = "Atomicity / Consistency / Isolation / Durability — спан двох чанків розділу «Транзакції»."
+
+[[q]]
+id = "concurrency-anomalies"
+file = "interviev_short.md"
+style = "keyword"
+question = "Чим відрізняються dirty read, non-repeatable read і phantom read?"
+gold = ["phantom read"]
+note = "Три аномалії конкурентного доступу до даних."
+
+[[q]]
+id = "isolation-read-committed"
+file = "interviev_short.md"
+style = "semantic"
+question = "Який рівень ізоляції бачить лише зафіксовані дані, але ще допускає неповторюване читання?"
+gold = ["читає тільки закомічені"]
+note = "READ COMMITTED: прибирає dirty read, але лишає non-repeatable/phantom."
+
+[[q]]
+id = "index-structure"
+file = "interviev_short.md"
+style = "mixed"
+question = "На якій структурі даних будуються індекси в БД?"
+gold = ["B-tree"]
+note = "B-tree або hash-table → швидкий пошук за ключем."
+
+[[q]]
+id = "index-write-cost"
+file = "interviev_short.md"
+style = "semantic"
+question = "Чому надлишок індексів сповільнює вставку та оновлення рядків?"
+gold = ["INSERT/UPDATE/DELETE"]
+note = "Індекс треба оновлювати при кожній модифікації + займає пам'ять."
+
+[[q]]
+id = "n-plus-1"
+file = "interviev_short.md"
+style = "keyword"
+question = "Що таке проблема N+1 запитів в ORM?"
+gold = ["N+1 запитів"]
+note = "1 запит на список + N запитів на пов'язані дані."
+
+[[q]]
+id = "n-plus-1-fix"
+file = "interviev_short.md"
+style = "mixed"
+question = "Як прибрати N+1: joinedload чи selectinload?"
+gold = ["selectinload"]
+note = "joinedload (JOIN, 1 запит) / selectinload (SELECT IN, 2 запити); у GraphQL — DataLoader."
+
+[[q]]
+id = "lazy-loading"
+file = "interviev_short.md"
+style = "semantic"
+question = "Коли пов'язані дані підтягуються лише в момент звернення до атрибута?"
+gold = ["тільки при зверненні"]
+note = "Lazy loading: економить ресурси, але ризикує N+1."
+
+# ---- §3  Web API -----------------------------------------------------------
+
+[[q]]
+id = "rest-overfetching"
+file = "interviev_short.md"
+style = "keyword"
+question = "Що таке overfetching у REST?"
+gold = ["overfetching"]
+note = "REST часто повертає зайві дані (overfetching) або недодає потрібні."
+
+[[q]]
+id = "graphql-client-fields"
+file = "interviev_short.md"
+style = "semantic"
+question = "В якому підході клієнт сам визначає набір потрібних полів одним запитом?"
+gold = ["клієнт сам описує"]
+note = "GraphQL: клієнт описує, які поля й дані потрібні."
+
+[[q]]
+id = "fastapi-depends"
+file = "interviev_short.md"
+style = "mixed"
+question = "Як FastAPI підставляє залежність через Depends перед обробником?"
+gold = ["FastAPI сам викликає"]
+note = "Depends(get_db) → FastAPI викликає функцію-залежність до ендпойнта і передає результат."
+
+# ---- §4  Auth --------------------------------------------------------------
+
+[[q]]
+id = "jwt-parts"
+file = "interviev_short.md"
+style = "mixed"
+question = "З яких трьох частин складається JWT?"
+gold = ["криптографічний підпис"]
+note = "Header / Payload / Signature (криптографічний підпис)."
+
+[[q]]
+id = "jwt-revoke"
+file = "interviev_short.md"
+style = "semantic"
+question = "Чому стандартний токен важко анулювати до закінчення строку життя?"
+gold = ["чорні списки"]
+note = "JWT не можна відкликати без додаткових механізмів (blacklists)."
+
+[[q]]
+id = "access-vs-refresh"
+file = "interviev_short.md"
+style = "mixed"
+question = "Чим access-токен відрізняється від refresh-токена за строком життя?"
+gold = ["≈15 хв"]
+note = "Access ~15 хв на кожен запит; refresh — довший, лише для оновлення access."
+
+[[q]]
+id = "session-auth"
+file = "interviev_short.md"
+style = "semantic"
+question = "Як сервер упізнає користувача за ідентифікатором у cookie при кожному запиті?"
+gold = ["знаходить сесію"]
+note = "Session-based: сервер зберігає сесію, клієнт шле session ID у cookie."
+
+# ---- §5  Caching -----------------------------------------------------------
+
+[[q]]
+id = "cache-levels"
+file = "interviev_short.md"
+style = "keyword"
+question = "Які бувають рівні кешування — in-memory, Redis/Memcached, CDN, БД?"
+gold = ["memcached"]
+note = "Таблиця рівнів кешу: in-memory, redis/memcached, CDN, database cache."
+
+[[q]]
+id = "lru-cache"
+file = "interviev_short.md"
+style = "mixed"
+question = "Що робить декоратор functools.lru_cache?"
+gold = ["кешування результатів функцій"]
+note = "Вбудований декоратор: кешує результати викликів у пам'яті процесу."
+
+[[q]]
+id = "redis-what"
+file = "interviev_short.md"
+style = "mixed"
+question = "Що таке Redis і чому він дуже швидкий?"
+gold = ["key-value store"]
+note = "In-memory key-value сховище, окремий сервер, дані в RAM."
+
+[[q]]
+id = "redis-usecases"
+file = "interviev_short.md"
+style = "keyword"
+question = "Для чого застосовують Redis — кеш, сесії, rate limiting, черги, pub/sub?"
+gold = ["rate limiting"]
+note = "Кеш БД/API, сесії, rate limiting, черги (celery), pub/sub, токени з TTL."
+
+[[q]]
+id = "etag-304"
+file = "interviev_short.md"
+style = "mixed"
+question = "Що таке ETag і коли сервер відповідає 304 Not Modified?"
+gold = ["304 Not Modified"]
+note = "ETag = ідентифікатор версії ресурсу; If-None-Match збігся → 304 без тіла."
+
+# ---- §6  DevOps ------------------------------------------------------------
+
+[[q]]
+id = "docker-vs-vm"
+file = "interviev_short.md"
+style = "semantic"
+question = "Чому контейнер стартує швидше й важить менше за повноцінну віртуальну машину?"
+gold = ["namespaces та cgroups"]
+note = "Docker використовує ядро хост-ОС, ізолює через namespaces/cgroups; VM емулює цілу ОС."
+
+[[q]]
+id = "ci-cd"
+file = "interviev_short.md"
+style = "keyword"
+question = "Що таке CI (Continuous Integration) і CD у пайплайні?"
+gold = ["Continuous Integration"]
+note = "CI — автоперевірка коду після коміту; CD — автодеплой після успішного CI."
+
+[[q]]
+id = "kubernetes"
+file = "interviev_short.md"
+style = "keyword"
+question = "Які можливості дає Kubernetes — scaling, self-healing, load balancing?"
+gold = ["Self-healing"]
+note = "Оркестратор контейнерів: auto-scaling, self-healing, load balancing, secrets/configmaps."
