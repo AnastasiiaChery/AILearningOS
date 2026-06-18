@@ -3,10 +3,14 @@
 Locks in the fix: chunks must never exceed the embedding model's input limit,
 and a long section must be split (covered in full), not truncated.
 """
+import app.services.ingestion.chunker as chunker_mod
+from app.core.config import settings
 from app.services.ingestion.chunker import (
     chunk_markdown,
     count_tokens,
     _effective_max_tokens,
+    _percentile,
+    _semantic_split,
 )
 
 
@@ -75,3 +79,49 @@ def test_recursive_respects_model_limit():
     assert len(chunks) > 1
     for c in chunks:
         assert count_tokens(c.content) <= 256
+
+
+# --- Semantic boundary splitting (Track C, exp.4) --------------------------
+
+def test_percentile_linear_interpolation():
+    """Pure-function percentile matches numpy's default (linear interpolation)."""
+    assert _percentile([], 95) == 0.0
+    assert _percentile([0.5], 95) == 0.5
+    # 50th of 1..5 is the median (3); 0th/100th are the extremes.
+    assert _percentile([1, 2, 3, 4, 5], 50) == 3
+    assert _percentile([1, 2, 3, 4, 5], 0) == 1
+    assert _percentile([1, 2, 3, 4, 5], 100) == 5
+
+
+def test_semantic_cuts_on_topic_shift(monkeypatch):
+    """A boundary should fall on the seam between two clearly distinct topics,
+    not mid-topic. Two coherent paragraphs about different subjects → the cut
+    lands between them, so each chunk is single-topic."""
+    monkeypatch.setattr(settings, "chunking_strategy", "semantic")
+    backend = "Бекенд обробляє запити. Сервер відповідає клієнту. API повертає дані. "
+    cooking = "Борщ варять з буряка. Тісто замішують з борошна. Суп солять за смаком. "
+    chunks = chunk_markdown("# Тема\n\n" + backend + cooking)
+    assert len(chunks) >= 2, "two distinct topics should produce at least two chunks"
+    # the backend topic and the cooking topic should not share a chunk
+    assert not any("Бекенд" in c.content and "Борщ" in c.content for c in chunks)
+
+
+def test_semantic_respects_model_limit(monkeypatch):
+    """An over-long coherent run must still be repacked under the hard cap."""
+    monkeypatch.setattr(settings, "chunking_strategy", "semantic")
+    long_section = "# Title\n\n" + ("гібридний пошук поєднує щільні та розріджені вектори. " * 200)
+    chunks = chunk_markdown(long_section)
+    assert len(chunks) > 1
+    for c in chunks:
+        assert count_tokens(c.content) <= 256
+
+
+def test_semantic_single_unit_is_passthrough(monkeypatch):
+    """One sentence has no neighbour to compare — return it unchanged, no embed."""
+    def _boom(*a, **k):
+        raise AssertionError("must not embed a single-unit section")
+
+    monkeypatch.setattr(settings, "chunking_strategy", "semantic")
+    monkeypatch.setattr(chunker_mod, "_sentence_units", lambda *a, **k: ["one unit only"])
+    monkeypatch.setattr("app.services.rag.embedder.embed_passages", _boom)
+    assert _semantic_split("anything", 256, 48) == ["one unit only"]

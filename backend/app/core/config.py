@@ -48,14 +48,24 @@ class Settings(BaseSettings):
     chunk_size: int = 256
     chunk_overlap: int = 48
 
-    # Chunking strategy (Track C, exp.3): how a section's text is cut.
+    # Chunking strategy (Track C, exp.3/4): how a section's text is cut.
     #   "recursive" – split at natural boundaries (paragraph → line → sentence),
     #                 greedily packed to the token budget with whole-unit
     #                 overlap. Never cuts a phrase mid-sentence unless one
     #                 sentence alone exceeds the model limit. Default.
+    #   "semantic"  – (exp.4) cut where meaning jumps: embed every sentence,
+    #                 measure cosine distance between neighbours, place a boundary
+    #                 at the top-percentile jumps. Reuses the embedder singleton;
+    #                 heavier at ingest (one extra encode per sentence). Token cap
+    #                 still enforced by repacking over-long segments.
     #   "token"     – legacy sliding window over raw token ids (Modules 1–7
     #                 baseline). Kept for reproducible before/after comparison.
     chunking_strategy: str = "recursive"
+    # Semantic chunking breakpoint percentile (only used when strategy="semantic").
+    # A consecutive-sentence distance at/above this percentile starts a new chunk.
+    # Higher → fewer, larger chunks (only the sharpest topic shifts cut); lower →
+    # more, smaller chunks. 95 keeps roughly the top ~5% of jumps as boundaries.
+    semantic_breakpoint_percentile: float = 95.0
 
     # HyDE (Track C, exp.2): Hypothetical Document Embeddings. Before searching,
     # an LLM writes a hypothetical answer to the query; we embed THAT for the

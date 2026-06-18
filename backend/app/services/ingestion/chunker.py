@@ -155,12 +155,116 @@ def _pack(units: list[str], max_tokens: int, overlap_tokens: int) -> list[str]:
     return chunks
 
 
+# --- Semantic boundary splitting (Track C, exp.4) --------------------------
+#
+# Recursive cuts on *syntactic* edges (paragraph/line/sentence) and packs
+# greedily to the token budget — boundaries fall wherever the budget runs out,
+# blind to meaning. Semantic chunking instead cuts where the *meaning* jumps:
+# embed each sentence, measure cosine distance between consecutive sentences,
+# and place a boundary at the largest distances (top (100 − P) percentile). A
+# run of topically-coherent sentences stays together; the cut lands on the seam
+# between two topics. The token cap still holds — an over-long semantic segment
+# is repacked by the recursive packer (the only hard guarantee of the limit).
+
+
+# Finest sentence-level split for semantic chunking: a sentence-final mark
+# followed by whitespace, OR any run of newlines. Unlike ``_atomize`` (which
+# only splits when a blob is over-budget), this ALWAYS atomizes to sentences —
+# semantic chunking must compare adjacent sentences even when the whole section
+# fits the token budget.
+_UNIT_SPLIT_RE = r"(?<=[.!?…])\s+|\n+"
+
+
+def _sentence_units(text: str, max_tokens: int, overlap_tokens: int) -> list[str]:
+    """Split into sentence-sized units, each guaranteed <= max_tokens.
+
+    A single sentence longer than the model limit (rare) is cut by the token
+    window — the only hard guarantee of the cap.
+    """
+    text = text.strip()
+    if not text:
+        return []
+    units: list[str] = []
+    for p in re.split(_UNIT_SPLIT_RE, text):
+        p = p.strip()
+        if not p:
+            continue
+        if count_tokens(p) <= max_tokens:
+            units.append(p)
+        else:
+            units.extend(_split_by_tokens(p, max_tokens, overlap_tokens))
+    return units
+
+
+def _percentile(values: list[float], p: float) -> float:
+    """Linear-interpolation percentile (numpy-free). ``p`` in [0, 100]."""
+    if not values:
+        return 0.0
+    s = sorted(values)
+    if len(s) == 1:
+        return s[0]
+    rank = (p / 100.0) * (len(s) - 1)
+    lo = int(rank)
+    hi = min(lo + 1, len(s) - 1)
+    frac = rank - lo
+    return s[lo] + (s[hi] - s[lo]) * frac
+
+
+def _semantic_split(text: str, max_tokens: int, overlap_tokens: int) -> list[str]:
+    """Cut at semantic jumps, then honor the token cap.
+
+    1. Split into sentence-sized units (each already <= max_tokens).
+    2. Embed every unit with the passage prefix via the shared embedder
+       singleton (normalized → cosine == dot product).
+    3. Distance between consecutive units = 1 − cosine. A boundary falls after
+       any unit whose forward distance is in the top (100 − P) percentile.
+    4. Each semantic segment is repacked to the token budget (an over-long
+       coherent run still splits; that's the only hard cap guarantee).
+    """
+    units = _sentence_units(text, max_tokens, overlap_tokens)
+    if len(units) <= 1:
+        return units
+
+    from app.services.rag.embedder import embed_passages
+
+    embs = embed_passages(units)
+    # cosine distance between neighbours (embeddings are unit-length → dot == cos)
+    dists = [
+        1.0 - sum(a * b for a, b in zip(embs[i], embs[i + 1]))
+        for i in range(len(embs) - 1)
+    ]
+    # threshold at the configured percentile; ``>=`` guarantees at least the
+    # single largest jump becomes a boundary, so a section always gets cut where
+    # its meaning shifts most (never collapses back to one giant chunk).
+    threshold = _percentile(dists, settings.semantic_breakpoint_percentile)
+
+    segments: list[list[str]] = []
+    cur: list[str] = [units[0]]
+    for i, d in enumerate(dists):
+        if d >= threshold:
+            segments.append(cur)
+            cur = [units[i + 1]]
+        else:
+            cur.append(units[i + 1])
+    segments.append(cur)
+
+    chunks: list[str] = []
+    for seg in segments:
+        # repack each segment so the hard token cap holds; no cross-segment
+        # overlap — the whole point is a clean seam between topics.
+        chunks.extend(_pack(seg, max_tokens, overlap_tokens))
+    return chunks
+
+
 def _split_section(text: str, max_tokens: int, overlap_tokens: int) -> list[str]:
     """Split one section's text into chunks per the configured strategy.
 
-    ``recursive`` cuts on natural boundaries (default); ``token`` is the legacy
-    sliding window kept for reproducible before/after comparison.
+    ``recursive`` cuts on natural boundaries (default); ``semantic`` cuts where
+    sentence-to-sentence meaning jumps (embeds every sentence); ``token`` is the
+    legacy sliding window kept for reproducible before/after comparison.
     """
+    if settings.chunking_strategy == "semantic":
+        return _semantic_split(text, max_tokens, overlap_tokens)
     if settings.chunking_strategy == "recursive":
         return _pack(_atomize(text, max_tokens, overlap_tokens), max_tokens, overlap_tokens)
     return _split_by_tokens(text, max_tokens, overlap_tokens)
