@@ -86,6 +86,20 @@ class Settings(BaseSettings):
     # once the eval harness shows it helps on this corpus.
     hyde_enabled: bool = False
 
+    # Parent-document retrieval (Track C, exp.6): search the small chunks
+    # (precision), but on the way back expand each hit into its parent context
+    # (recall/completeness for the LLM). Two shapes:
+    #   "section" – gather every chunk sharing the hit's heading-path (same
+    #               document_id + h1/h2/h3) and stitch them by chunk_index.
+    #   "window"  – the hit's chunk_index ± parent_window within the same document.
+    # Hits that map to the same parent are de-duplicated to a single block (which
+    # frees top-k slots for other parents). The index is untouched — expansion is
+    # purely a return-path transform, so no re-ingest. Off by default: measure
+    # first, and most of the payoff (fuller LLM context) is invisible to the
+    # retrieval harness — see LEARNING_NOTES Module 11.
+    parent_retrieval: str = "off"  # off | section | window
+    parent_window: int = 1
+
     # Reranking (stage 2): pull N candidates from hybrid search, cross-encode,
     # keep retrieval_top_k. Set rerank_enabled=False to compare against raw RRF.
     # mmarco-mMiniLMv2 is a multilingual cross-encoder (vs the English-only

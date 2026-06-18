@@ -123,6 +123,34 @@ async def upsert_chunks(
     logger.info("Upserted %d points to Qdrant.", len(points))
 
 
+async def fetch_document_chunks(document_id: str) -> list[dict]:
+    """All chunks of one document, payloads only, sorted by chunk_index.
+
+    Parent-document retrieval (Track C, exp.6) needs a hit chunk's siblings to
+    assemble its section/window on the return path. Corpora here are small, so we
+    scroll the whole document in one pass; a heavier corpus would page or cache.
+    """
+    client = get_qdrant_client()
+    payloads: list[dict] = []
+    offset = None
+    while True:
+        points, offset = await client.scroll(
+            collection_name=settings.qdrant_collection,
+            scroll_filter=Filter(
+                must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))]
+            ),
+            limit=256,
+            with_payload=True,
+            with_vectors=False,
+            offset=offset,
+        )
+        payloads.extend(p.payload or {} for p in points)
+        if offset is None:
+            break
+    payloads.sort(key=lambda p: p.get("chunk_index", 0))
+    return payloads
+
+
 async def delete_document_chunks(document_id: str) -> None:
     client = get_qdrant_client()
     await client.delete(

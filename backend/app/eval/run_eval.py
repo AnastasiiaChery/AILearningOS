@@ -54,13 +54,18 @@ async def _run(ks: list[int], only: list[str] | None, verbose: bool) -> dict:
         per_q = []
         for r in scorable:
             ranked = await retrieve(r.question.question, depth)
-            rank = next((i for i, c in enumerate(ranked, 1) if c in r.relevant), None)
+            # A retriever may return a flat chunk_id list OR (parent-document,
+            # exp.6) a list of blocks — each block a list of covered chunk_ids.
+            # Normalize to blocks; a flat list is just singleton blocks, on which
+            # the block metrics reduce exactly to the chunk-level ones.
+            blocks = ranked if (ranked and isinstance(ranked[0], (list, tuple))) else [[c] for c in ranked]
+            rank = next((i for i, b in enumerate(blocks, 1) if r.relevant & set(b)), None)
             per_q.append((r.question.id, rank))
             for k in ks:
-                agg[f"hit@{k}"] += metrics.hit_at_k(ranked, r.relevant, k)
-                agg[f"recall@{k}"] += metrics.recall_at_k(ranked, r.relevant, k)
-                agg[f"ndcg@{k}"] += metrics.ndcg_at_k(ranked, r.relevant, k)
-            agg_mrr += metrics.reciprocal_rank(ranked, r.relevant, depth)
+                agg[f"hit@{k}"] += metrics.block_hit_at_k(blocks, r.relevant, k)
+                agg[f"recall@{k}"] += metrics.block_recall_at_k(blocks, r.relevant, k)
+                agg[f"ndcg@{k}"] += metrics.block_ndcg_at_k(blocks, r.relevant, k)
+            agg_mrr += metrics.block_reciprocal_rank(blocks, r.relevant, depth)
         n = len(scorable)
         report[name] = {
             **{key: round(val / n, 4) for key, val in agg.items()},

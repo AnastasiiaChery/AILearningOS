@@ -28,7 +28,9 @@ from app.services.rag.hyde import generate_hypothetical
 from app.services.rag.qdrant_store import get_qdrant_client, _build_sparse_vector
 from app.services.rag.retriever import hybrid_search
 
-Retriever = Callable[[str, int], Awaitable[list[str]]]
+# A strategy returns a ranked chunk_id list, or (parent-document) a ranked list
+# of blocks — each block the chunk_ids it covers. run_eval normalizes both.
+Retriever = Callable[[str, int], Awaitable[list]]
 
 # Per-run memo: question text → hypothetical doc. Sequential eval reuses the draft
 # across the three HyDE strategies, keeping the comparison fair and cheap.
@@ -101,6 +103,22 @@ async def hybrid_hyde_rerank(query: str, k: int) -> list[str]:
     return [c.get("chunk_id") for c in chunks]
 
 
+# Parent-document strategies (Track C, exp.6). Same prod path (hybrid+rerank),
+# but each hit is expanded into its parent block on the return path. These return
+# a list of BLOCKS — each block the list of chunk_ids it covers — so the harness
+# credits every covered chunk (block_* metrics). The ranking is hit-driven and
+# unchanged; the measurable angle is coverage of multi-chunk gold (one section
+# whose answer is split across chunks).
+async def parent_section(query: str, k: int) -> list[list[str]]:
+    blocks = await hybrid_search(query, top_k=k, rerank=True, parent="section")
+    return [b.get("member_chunk_ids") or [b.get("chunk_id")] for b in blocks]
+
+
+async def parent_window(query: str, k: int) -> list[list[str]]:
+    blocks = await hybrid_search(query, top_k=k, rerank=True, parent="window")
+    return [b.get("member_chunk_ids") or [b.get("chunk_id")] for b in blocks]
+
+
 # Order matters: this is the column order in the results table. HyDE variants sit
 # next to their non-HyDE twins so the до/после читается по строкам.
 STRATEGIES: dict[str, Retriever] = {
@@ -111,4 +129,6 @@ STRATEGIES: dict[str, Retriever] = {
     "hybrid+hyde": hybrid_hyde,
     "hybrid+rerank": hybrid_rerank,
     "hybrid+hyde+rerank": hybrid_hyde_rerank,
+    "parent-sec": parent_section,
+    "parent-win": parent_window,
 }
