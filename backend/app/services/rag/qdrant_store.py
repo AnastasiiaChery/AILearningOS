@@ -87,7 +87,14 @@ async def upsert_chunks(
 
     client = get_qdrant_client()
     texts = [c.content for c in chunks]
-    dense_vecs = await aembed_passages(texts)
+    # Late chunking (Track C, exp.5) pre-pools dense vectors from a whole-document
+    # pass at chunk time — they cannot be reproduced from the chunk text alone, so
+    # reuse them verbatim. Every other strategy leaves dense_vector=None and the
+    # chunk text is embedded here as usual.
+    if chunks and all(c.dense_vector is not None for c in chunks):
+        dense_vecs = [c.dense_vector for c in chunks]
+    else:
+        dense_vecs = await aembed_passages(texts)
 
     points = []
     for chunk, dense, chunk_id in zip(chunks, dense_vecs, chunk_ids):

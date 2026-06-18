@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     #                 at the top-percentile jumps. Reuses the embedder singleton;
     #                 heavier at ingest (one extra encode per sentence). Token cap
     #                 still enforced by repacking over-long segments.
+    #   "late"      – (exp.5) late chunking: cut at natural boundaries (same as
+    #                 recursive, no overlap) but embed the WHOLE document first and
+    #                 mean-pool token embeddings over each chunk's span, so every
+    #                 chunk-vector is contextualized by the surrounding document.
+    #                 Bounded by the encoder's 512-token window → a token-level
+    #                 sliding window approximates the single pass (see embedder.py).
     #   "token"     – legacy sliding window over raw token ids (Modules 1–7
     #                 baseline). Kept for reproducible before/after comparison.
     chunking_strategy: str = "recursive"
@@ -66,6 +72,10 @@ class Settings(BaseSettings):
     # Higher → fewer, larger chunks (only the sharpest topic shifts cut); lower →
     # more, smaller chunks. 95 keeps roughly the top ~5% of jumps as boundaries.
     semantic_breakpoint_percentile: float = 95.0
+    # Late chunking (strategy="late"): token overlap between consecutive encoder
+    # windows. The overlap is averaged so the contextualized embeddings join
+    # smoothly across the 512-token window seam instead of jumping discontinuously.
+    late_chunk_window_overlap: int = 64
 
     # HyDE (Track C, exp.2): Hypothetical Document Embeddings. Before searching,
     # an LLM writes a hypothetical answer to the query; we embed THAT for the

@@ -125,3 +125,53 @@ def test_semantic_single_unit_is_passthrough(monkeypatch):
     monkeypatch.setattr(chunker_mod, "_sentence_units", lambda *a, **k: ["one unit only"])
     monkeypatch.setattr("app.services.rag.embedder.embed_passages", _boom)
     assert _semantic_split("anything", 256, 48) == ["one unit only"]
+
+
+# --- Late chunking (Track C, exp.5) ----------------------------------------
+
+def test_unit_spans_recover_verbatim_offsets():
+    """Each unit span must index back to its exact substring of the section.
+
+    Uses a tiny per-unit budget so the section atomizes into several sentence
+    units (``_atomize`` only splits once a blob exceeds the budget)."""
+    text = "Перше речення тут. Друге речення далі. Третє завершує думку."
+    spans = chunker_mod._unit_spans(text, 8)
+    assert len(spans) >= 3, "small budget should atomize into multiple units"
+    for u, s, e in spans:
+        assert text[s:e] == u, "offset does not recover the unit text"
+
+
+def test_pack_spans_contiguous_no_overlap_within_cap():
+    """Late spans are packed to the budget with NO overlap (clean seams) and
+    every span still fits the model limit."""
+    cap = _effective_max_tokens()
+    body = " ".join(f"Речення номер {i} описує окрему ідею." for i in range(80))
+    spans = chunker_mod._pack_spans(chunker_mod._unit_spans(body, cap), cap)
+    assert len(spans) >= 2, "a long body must pack into multiple chunks"
+    for (_s0, e0), (s1, _e1) in zip(spans, spans[1:]):
+        assert s1 >= e0, "consecutive late chunks must not overlap"
+    for s, e in spans:
+        assert count_tokens(body[s:e]) <= cap
+
+
+def test_late_chunking_attaches_pooled_vectors(monkeypatch):
+    """The late path must hand the embedder one span per chunk and store the
+    returned vector on each chunk — without re-embedding the text."""
+    monkeypatch.setattr(settings, "chunking_strategy", "late")
+    seen = {}
+
+    def _fake_late(body, spans):
+        seen["body"] = body
+        seen["spans"] = spans
+        return [[float(i), 0.0, 0.0, 1.0] for i in range(len(spans))]
+
+    monkeypatch.setattr("app.services.rag.embedder.embed_spans_late", _fake_late)
+    sentences = [f"Унікальне речення {i} про окрему ідею бекенду." for i in range(40)]
+    chunks = chunk_markdown("# Тема\n\n" + " ".join(sentences))
+
+    assert chunks, "late chunking produced no chunks"
+    assert len(chunks) == len(seen["spans"]), "one span must map to one chunk"
+    for c in chunks:
+        assert c.dense_vector is not None and len(c.dense_vector) == 4
+    joined = " ".join(c.content for c in chunks)
+    assert sentences[0] in joined and sentences[-1] in joined, "text dropped"
