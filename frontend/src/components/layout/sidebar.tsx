@@ -12,12 +12,14 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Primary learning flow first; the standalone whole-KB chat is secondary now
+// that each plan topic has its own contextual "Ask about this" mentor.
 const navItems = [
-  { href: "/chat", icon: MessageSquare, label: "AI Mentor" },
   { href: "/knowledge", icon: BookOpen, label: "Knowledge Base" },
   { href: "/plans", icon: Brain, label: "Learning Plans" },
   { href: "/quizzes", icon: HelpCircle, label: "Quizzes" },
   { href: "/progress", icon: LayoutDashboard, label: "Progress" },
+  { href: "/chat", icon: MessageSquare, label: "Ask (all docs)" },
 ];
 
 export function Sidebar() {

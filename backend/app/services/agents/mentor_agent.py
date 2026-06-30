@@ -17,6 +17,7 @@ When answering:
 3. If the context doesn't contain enough information, say so honestly
 4. Adapt your explanation complexity to the user's apparent level
 5. Be concise but thorough
+6. Answer in the SAME language as the user's question — never translate unasked
 
 Context:
 {context}"""
@@ -36,7 +37,7 @@ Latest message: {message}
 Standalone search query:"""
 
 
-class MentorState(TypedDict):
+class MentorState(TypedDict, total=False):
     session_id: str
     user_message: str
     history: list[BaseMessage]
@@ -44,6 +45,10 @@ class MentorState(TypedDict):
     retrieved_chunks: list[dict]
     response_text: str
     cited_chunk_ids: list[str]
+    # Optional scoping for in-topic chat (absent → standalone whole-KB chat):
+    document_ids: list[str]   # restrict retrieval to these documents
+    topic_hint: str           # bias retrieval toward this topic
+    lesson_context: str       # the lesson the learner is reading, seeded into context
 
 
 def _format_context(chunks: list[dict]) -> str:
@@ -84,13 +89,22 @@ async def contextualize_query(state: MentorState) -> dict:
 
 
 async def retrieve_context(state: MentorState) -> dict:
-    chunks = await hybrid_search(state["search_query"])
+    query = state["search_query"]
+    hint = state.get("topic_hint")
+    if hint:
+        # In-topic chat: bias retrieval toward the topic being studied.
+        query = f"{hint} — {query}"
+    chunks = await hybrid_search(query, document_ids=state.get("document_ids") or None)
     return {"retrieved_chunks": chunks}
 
 
 async def generate_response(state: MentorState) -> dict:
     chunks = state["retrieved_chunks"]
     context = _format_context(chunks) if chunks else "No relevant content found in your knowledge base."
+    # Seed the lesson the learner is currently reading so the chat is anchored to it.
+    lesson = state.get("lesson_context")
+    if lesson:
+        context = f"The learner is studying this lesson:\n{lesson}\n\n---\n\n{context}"
 
     system = SystemMessage(content=SYSTEM_PROMPT.format(context=context))
     messages = [system] + state["history"] + [HumanMessage(content=state["user_message"])]

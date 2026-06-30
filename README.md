@@ -91,6 +91,28 @@ Keep PostgreSQL and Qdrant running via Docker:
 docker compose up -d postgres qdrant
 ```
 
+## Tests & eval (run standalone)
+
+> ⚠️ **Run pytest / the eval harness standalone — never alongside a live `backend`.**
+> The backend container holds the e5 embedder + cross-encoder in memory (~2 GB).
+> A second process loading the same models next to a running `uvicorn` overruns
+> the container memory limit and is OOM-killed (`exit=137`). Stop the backend
+> first, run in a throwaway `--no-deps` container, then start it again:
+
+```bash
+docker compose stop backend
+docker compose run --rm --no-deps -T backend \
+  sh -c 'cd /app && PYTHONPATH=/app uv run --with pytest python -m pytest tests/ -q'
+docker compose start backend
+```
+
+The same stop → `run --rm --no-deps` → start pattern applies to the eval harness
+(`python -m app.eval.run_eval`) for the same reason.
+
+After changing backend code, apply it with `docker compose restart backend`
+(macOS bind-mounts don't reliably trigger `--reload`, and `--reload` would
+re-load the models on every edit → memory spikes).
+
 ## Retrieval & eval (learning track)
 
 Retrieval changes are driven by numbers, not vibes. A golden-set eval harness

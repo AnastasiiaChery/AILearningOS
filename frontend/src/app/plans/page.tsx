@@ -4,25 +4,32 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Brain, Plus, X } from "lucide-react";
 import { api } from "@/lib/api";
-import type { LearningPlan } from "@/lib/types";
-import { formatDate } from "@/lib/utils";
+import type { Document, LearningPlan } from "@/lib/types";
+import { formatDate, cn } from "@/lib/utils";
 
 export default function PlansPage() {
   const router = useRouter();
   const [plans, setPlans] = useState<LearningPlan[]>([]);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [goal, setGoal] = useState("");
   const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
     api.plans.list().then(setPlans);
+    api.knowledge.list().then((docs) => setDocuments(docs.filter((d) => d.status === "ready")));
   }, []);
+
+  function toggleDoc(id: string) {
+    setSelectedDocs((prev) => (prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id]));
+  }
 
   async function generatePlan() {
     if (!goal.trim()) return;
     setGenerating(true);
     try {
-      const plan = await api.plans.generate(goal.trim());
+      const plan = await api.plans.generate(goal.trim(), selectedDocs);
       router.push(`/plans/${plan.id}`);
     } catch (e: unknown) {
       alert((e as Error).message || "Failed to generate plan");
@@ -102,6 +109,45 @@ export default function PlansPage() {
               rows={4}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-600 outline-none focus:border-emerald-500 resize-none mb-4"
             />
+
+            {documents.length > 0 && (
+              <div className="mb-4">
+                <label className="text-xs text-gray-500 mb-1.5 block">
+                  Base on documents{" "}
+                  <span className="text-gray-600">
+                    {selectedDocs.length ? `(${selectedDocs.length} selected)` : "(all, if none selected)"}
+                  </span>
+                </label>
+                <div className="max-h-40 overflow-y-auto rounded-lg border border-gray-800 divide-y divide-gray-800">
+                  {documents.map((doc) => (
+                    <button
+                      key={doc.id}
+                      type="button"
+                      onClick={() => toggleDoc(doc.id)}
+                      className={cn(
+                        "w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors",
+                        selectedDocs.includes(doc.id)
+                          ? "bg-emerald-600/15 text-emerald-200"
+                          : "text-gray-400 hover:bg-gray-800"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "w-4 h-4 rounded border flex items-center justify-center shrink-0 text-[10px]",
+                          selectedDocs.includes(doc.id)
+                            ? "bg-emerald-500 border-emerald-500 text-white"
+                            : "border-gray-600"
+                        )}
+                      >
+                        {selectedDocs.includes(doc.id) ? "✓" : ""}
+                      </span>
+                      <span className="truncate">{doc.original_filename}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowModal(false)}

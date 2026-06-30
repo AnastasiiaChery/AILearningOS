@@ -12,7 +12,7 @@ export default function QuizPage() {
   const { id } = useParams<{ id: string }>();
   const [quiz, setQuiz] = useState<QuizDetail | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [result, setResult] = useState<{ score: number; answers: Array<{ question_id: string; correct: boolean; correct_answer: string; explanation?: string }> } | null>(null);
+  const [result, setResult] = useState<{ score: number; answers: Array<{ question_id: string; correct: boolean; correct_answer: string; explanation?: string; verdict?: "correct" | "partial" | "incorrect"; given_answer?: string }> } | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -73,14 +73,46 @@ export default function QuizPage() {
               </p>
 
               {q.question_type === "short_answer" ? (
-                <input
-                  type="text"
-                  value={answers[q.id] || ""}
-                  onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                  disabled={!!result}
-                  placeholder="Your answer..."
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-600 outline-none focus:border-emerald-500"
-                />
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={answers[q.id] || ""}
+                    onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                    disabled={!!result}
+                    placeholder="Your answer..."
+                    className={cn(
+                      "w-full bg-gray-800 border rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-600 outline-none focus:border-emerald-500",
+                      result && resultForQ?.verdict === "correct"
+                        ? "border-emerald-500/40"
+                        : result && resultForQ?.verdict === "partial"
+                        ? "border-amber-500/40"
+                        : result
+                        ? "border-red-500/40"
+                        : "border-gray-700"
+                    )}
+                  />
+                  {result && resultForQ?.verdict && (
+                    <div className="flex items-center gap-2 text-xs">
+                      <span
+                        className={cn(
+                          "px-2 py-0.5 rounded-full font-medium capitalize",
+                          resultForQ.verdict === "correct"
+                            ? "bg-emerald-500/10 text-emerald-400"
+                            : resultForQ.verdict === "partial"
+                            ? "bg-amber-500/10 text-amber-400"
+                            : "bg-red-500/10 text-red-400"
+                        )}
+                      >
+                        {resultForQ.verdict}
+                      </span>
+                      {resultForQ.verdict !== "correct" && (
+                        <span className="text-gray-500">
+                          Expected: <span className="text-gray-300">{resultForQ.correct_answer}</span>
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
               ) : (
                 <div className="space-y-2">
                   {Object.entries(q.options || {}).map(([key, text]) => {

@@ -64,6 +64,19 @@ export interface LearningPlanDetail extends LearningPlan {
   topics: PlanTopic[];
 }
 
+export interface TopicLesson {
+  topic_id: string;
+  topic_title: string;
+  lesson: string;
+  exercise: string;
+  citations: Citation[];
+}
+
+export interface GradeResult {
+  verdict: "correct" | "partial" | "incorrect";
+  explanation: string;
+}
+
 export interface QuizQuestion {
   id: string;
   question_text: string;

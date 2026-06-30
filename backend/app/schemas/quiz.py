@@ -8,6 +8,7 @@ class GenerateQuizRequest(BaseModel):
     document_id: uuid.UUID | None = None
     topic_id: uuid.UUID | None = None
     question_count: int = 5
+    difficulty: str = "medium"  # easy | medium | hard
 
 
 class QuizQuestionOut(BaseModel):

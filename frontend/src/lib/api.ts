@@ -54,10 +54,10 @@ export const api = {
   },
 
   plans: {
-    generate: (goal: string) =>
+    generate: (goal: string, documentIds?: string[]) =>
       request<import("./types").LearningPlanDetail>("/plans/generate", {
         method: "POST",
-        body: JSON.stringify({ goal }),
+        body: JSON.stringify({ goal, document_ids: documentIds?.length ? documentIds : null }),
       }),
     list: () => request<import("./types").LearningPlan[]>("/plans"),
     get: (id: string) => request<import("./types").LearningPlanDetail>(`/plans/${id}`),
@@ -66,10 +66,26 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify({ status }),
       }),
+    lesson: (planId: string, topicId: string, opts?: { language?: string; regenerate?: boolean }) =>
+      request<import("./types").TopicLesson>(`/plans/${planId}/topics/${topicId}/lesson`, {
+        method: "POST",
+        body: JSON.stringify({ language: opts?.language ?? "auto", regenerate: opts?.regenerate ?? false }),
+      }),
+    gradeExercise: (planId: string, topicId: string, exercise: string, answer: string, language = "auto") =>
+      request<import("./types").GradeResult>(`/plans/${planId}/topics/${topicId}/grade`, {
+        method: "POST",
+        body: JSON.stringify({ exercise, answer, language }),
+      }),
+    topicChat: (planId: string, topicId: string, message: string, history: Array<{ role: string; content: string }>): Promise<Response> =>
+      fetch(`${BASE_URL}/api/v1/plans/${planId}/topics/${topicId}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, history }),
+      }),
   },
 
   quizzes: {
-    generate: (params: { document_id?: string; topic_id?: string; question_count?: number }) =>
+    generate: (params: { document_id?: string; topic_id?: string; question_count?: number; difficulty?: string }) =>
       request<import("./types").QuizDetail>("/quizzes/generate", {
         method: "POST",
         body: JSON.stringify(params),

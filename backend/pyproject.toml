@@ -17,8 +17,12 @@ dependencies = [
     "pydantic>=2.10.0",
     "pydantic-settings>=2.6.0",
     "python-dotenv>=1.0.0",
-    # Vector DB
-    "qdrant-client>=1.12.0",
+    # Vector DB — pinned to the server's minor (compose runs qdrant v1.12.4).
+    # A newer client logs an "incompatible version" warning; the hybrid
+    # query/scroll API we use is stable across 1.12–1.18, so we match the
+    # client to the server instead of bumping the server (which would force a
+    # re-pull + recreate + full re-ingest of the collection).
+    "qdrant-client~=1.12.0",
     # LangChain + LangGraph
     "langchain>=0.3.0",
     "langchain-community>=0.3.0",

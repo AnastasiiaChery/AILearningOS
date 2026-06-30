@@ -46,6 +46,9 @@ class PlanTopic(Base):
     order_index: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="not_started")
     estimated_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Cached generated lesson, keyed by language: {language, lesson, exercise, citations}.
+    # Lets reopening a topic be instant instead of re-running the LLM each time.
+    lesson_cache: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     plan: Mapped["LearningPlan"] = relationship(

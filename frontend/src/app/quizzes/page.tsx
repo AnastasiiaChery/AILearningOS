@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { HelpCircle, Plus, X } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Document, Quiz } from "@/lib/types";
-import { formatDate } from "@/lib/utils";
+import { formatDate, cn } from "@/lib/utils";
 
 export default function QuizzesPage() {
   const router = useRouter();
@@ -14,6 +14,7 @@ export default function QuizzesPage() {
   const [showModal, setShowModal] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState("");
   const [questionCount, setQuestionCount] = useState(5);
+  const [difficulty, setDifficulty] = useState("medium");
   const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
@@ -25,7 +26,7 @@ export default function QuizzesPage() {
     if (!selectedDoc) return;
     setGenerating(true);
     try {
-      const quiz = await api.quizzes.generate({ document_id: selectedDoc, question_count: questionCount });
+      const quiz = await api.quizzes.generate({ document_id: selectedDoc, question_count: questionCount, difficulty });
       router.push(`/quizzes/${quiz.id}`);
     } catch (e: unknown) {
       alert((e as Error).message || "Failed to generate quiz");
@@ -92,6 +93,26 @@ export default function QuizzesPage() {
                     <option key={doc.id} value={doc.id}>{doc.original_filename}</option>
                   ))}
                 </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1.5 block">Difficulty</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {["easy", "medium", "hard"].map((lvl) => (
+                    <button
+                      key={lvl}
+                      type="button"
+                      onClick={() => setDifficulty(lvl)}
+                      className={cn(
+                        "px-3 py-2 rounded-lg text-sm capitalize border transition-colors",
+                        difficulty === lvl
+                          ? "bg-emerald-600/20 border-emerald-600 text-emerald-200"
+                          : "border-gray-700 text-gray-400 hover:border-gray-600"
+                      )}
+                    >
+                      {lvl}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div>
                 <label className="text-xs text-gray-500 mb-1.5 block">

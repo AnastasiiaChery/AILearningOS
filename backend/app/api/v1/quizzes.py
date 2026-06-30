@@ -22,12 +22,21 @@ from app.schemas.quiz import (
     AttemptResultOut,
 )
 from app.services.agents.llm_factory import get_llm
+from app.services.grader import grade_short_answer, points_for_verdict
 from app.services.rag.retriever import hybrid_search
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-QUIZ_PROMPT = """Generate {count} quiz questions based on the following content from a knowledge base.
+DIFFICULTY_GUIDE = {
+    "easy": "Easy: test recall of explicitly stated facts and definitions. Plausible but clearly wrong distractors.",
+    "medium": "Medium: test understanding and application, not just recall. Distractors should be plausible.",
+    "hard": "Hard: test deeper reasoning, edge cases, and connections between ideas. Distractors must be subtle and tempting.",
+}
+
+QUIZ_PROMPT = """Generate {count} **{difficulty}** quiz questions based on the following content from a knowledge base.
+
+Difficulty: {difficulty_guide}
 
 Content:
 {content}
@@ -49,9 +58,15 @@ For short_answer: options = null, correct_answer = brief expected answer.
 Return only valid JSON array, no markdown."""
 
 
-async def _generate_questions(content: str, count: int) -> list[dict]:
+async def _generate_questions(content: str, count: int, difficulty: str = "medium") -> list[dict]:
     llm = get_llm()
-    prompt = QUIZ_PROMPT.format(content=content[:6000], count=count)
+    difficulty = difficulty if difficulty in DIFFICULTY_GUIDE else "medium"
+    prompt = QUIZ_PROMPT.format(
+        content=content[:6000],
+        count=count,
+        difficulty=difficulty,
+        difficulty_guide=DIFFICULTY_GUIDE[difficulty],
+    )
 
     from langchain_core.messages import HumanMessage
     response = await llm.ainvoke([HumanMessage(content=prompt)])
@@ -80,9 +95,17 @@ async def generate_quiz(body: GenerateQuizRequest, db: AsyncSession = Depends(ge
             select(DocumentChunk)
             .where(DocumentChunk.document_id == body.document_id)
             .order_by(DocumentChunk.chunk_index)
-            .limit(10)
         )
-        content_parts = [c.content for c in result.scalars().all()]
+        all_chunks = [c.content for c in result.scalars().all()]
+        # Sample evenly across the WHOLE document, not just the first N chunks —
+        # otherwise questions only ever cover the introduction. Aim for ~2 chunks
+        # of material per question (bounded), spread end to end.
+        budget = min(len(all_chunks), max(12, body.question_count * 2))
+        if all_chunks and budget < len(all_chunks):
+            step = len(all_chunks) / budget
+            content_parts = [all_chunks[int(i * step)] for i in range(budget)]
+        else:
+            content_parts = all_chunks
 
     elif body.topic_id:
         topic = await db.get(PlanTopic, body.topic_id)
@@ -96,9 +119,11 @@ async def generate_quiz(body: GenerateQuizRequest, db: AsyncSession = Depends(ge
         raise HTTPException(400, "No content available to generate quiz")
 
     combined_content = "\n\n---\n\n".join(content_parts)
+    if body.difficulty in DIFFICULTY_GUIDE and body.difficulty != "medium":
+        title = f"{title} ({body.difficulty})"
 
     try:
-        questions_data = await _generate_questions(combined_content, body.question_count)
+        questions_data = await _generate_questions(combined_content, body.question_count, body.difficulty)
     except Exception as e:
         logger.exception("Quiz generation failed: %s", e)
         raise HTTPException(500, "Failed to generate quiz questions")
@@ -159,6 +184,7 @@ async def submit_attempt(
 
     questions_by_id = {str(q.id): q for q in quiz.questions}
     scored_answers = []
+    earned = 0.0
     correct_count = 0
 
     for ans in body.answers:
@@ -167,7 +193,21 @@ async def submit_attempt(
         question = questions_by_id.get(q_id)
         if not question:
             continue
-        is_correct = given.strip().upper() == question.correct_answer.strip().upper()
+
+        if question.question_type == "short_answer":
+            # Free text: an LLM judge decides semantic equivalence.
+            v = await grade_short_answer(question.question_text, question.correct_answer, given)
+            verdict = v.verdict
+            points = points_for_verdict(verdict)
+            explanation = v.explanation or question.explanation
+        else:
+            # MC / TF: the answer is a single option key — exact match is correct.
+            verdict = "correct" if given.strip().upper() == question.correct_answer.strip().upper() else "incorrect"
+            points = 1.0 if verdict == "correct" else 0.0
+            explanation = question.explanation
+
+        is_correct = verdict == "correct"
+        earned += points
         if is_correct:
             correct_count += 1
         scored_answers.append({
@@ -175,11 +215,13 @@ async def submit_attempt(
             "given_answer": given,
             "correct_answer": question.correct_answer,
             "correct": is_correct,
-            "explanation": question.explanation,
+            "verdict": verdict,
+            "points": points,
+            "explanation": explanation,
         })
 
     total = len(quiz.questions)
-    score = correct_count / total if total > 0 else 0.0
+    score = earned / total if total > 0 else 0.0
 
     attempt = QuizAttempt(
         quiz_id=quiz_id,
@@ -195,7 +237,7 @@ async def submit_attempt(
         event_type="quiz_completed",
         entity_id=quiz_id,
         entity_type="quiz",
-        event_data={"score": score, "correct": correct_count, "total": total},
+        event_data={"score": score, "correct": correct_count, "earned": earned, "total": total},
     )
     db.add(event)
     await db.commit()

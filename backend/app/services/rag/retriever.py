@@ -6,6 +6,9 @@ from qdrant_client.models import (
     Fusion,
     Prefetch,
     SparseVector,
+    Filter,
+    FieldCondition,
+    MatchAny,
 )
 
 from app.core.config import settings
@@ -107,12 +110,26 @@ async def _expand_to_parents(hits: list[dict], mode: str, window: int) -> list[d
     return blocks
 
 
+def _doc_filter(document_ids: list[str] | None) -> Filter | None:
+    """Restrict retrieval to a set of documents (None → search the whole KB).
+
+    ``document_id`` is stored in the payload as a string, so ids are stringified
+    before matching. Used to scope a plan or quiz to user-selected files.
+    """
+    if not document_ids:
+        return None
+    return Filter(
+        must=[FieldCondition(key="document_id", match=MatchAny(any=[str(d) for d in document_ids]))]
+    )
+
+
 async def hybrid_search(
     query: str,
     top_k: int | None = None,
     rerank: bool | None = None,
     hyde_doc: str | None = None,
     parent: str | None = None,
+    document_ids: list[str] | None = None,
 ) -> list[dict]:
     """Two-stage retrieval: hybrid dense+sparse (RRF) → optional cross-encoder rerank.
 
@@ -152,14 +169,19 @@ async def hybrid_search(
     dense_vec = await aembed_query(dense_text)
     sparse_vec = _build_sparse_vector(query)
 
+    # Scope candidates to selected documents (if any). The filter goes on each
+    # prefetch so both dense and sparse sides search only those docs before RRF.
+    doc_filter = _doc_filter(document_ids)
+
     results = await client.query_points(
         collection_name=settings.qdrant_collection,
         prefetch=[
-            Prefetch(query=dense_vec, using="dense", limit=candidate_n * 2),
+            Prefetch(query=dense_vec, using="dense", limit=candidate_n * 2, filter=doc_filter),
             Prefetch(
                 query=SparseVector(indices=sparse_vec.indices, values=sparse_vec.values),
                 using="sparse",
                 limit=candidate_n * 2,
+                filter=doc_filter,
             ),
         ],
         query=FusionQuery(fusion=Fusion.RRF),

@@ -16,6 +16,9 @@ class Document(Base):
     original_filename: Mapped[str] = mapped_column(String(512), nullable=False)
     file_type: Mapped[str] = mapped_column(String(32), nullable=False)  # markdown | pdf
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    # sha256 of the raw uploaded bytes — used to dedup re-uploads of identical
+    # content. Nullable: rows ingested before this column existed have no hash.
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     chunk_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error_msg: Mapped[str | None] = mapped_column(Text, nullable=True)

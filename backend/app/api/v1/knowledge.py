@@ -1,4 +1,5 @@
 """Knowledge base management — upload, list, delete documents."""
+import hashlib
 import os
 import uuid
 import logging
@@ -44,6 +45,12 @@ async def _process_document(document_id: str, file_path: str, file_type: str) ->
             else:
                 from app.services.ingestion.pdf_loader import load_pdf
                 chunks = load_pdf(file_path)
+
+            # An empty file or a text-less/corrupt PDF yields no chunks. Treat
+            # that as an ingestion error rather than silently marking the doc
+            # "ready" with zero chunks (which would look fine but never match).
+            if not chunks:
+                raise ValueError("No extractable text content found in document.")
 
             chunk_ids = [uuid.uuid4() for _ in chunks]
 
@@ -94,6 +101,22 @@ async def upload_document(
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(400, "File too large. Max 50 MB.")
 
+    # Idempotent ingestion: identical content (same sha256) that's already been
+    # ingested — or is mid-ingestion — is returned as-is instead of producing a
+    # duplicate set of chunks. Documents in the "error" state are excluded so a
+    # failed upload can always be retried.
+    content_hash = hashlib.sha256(content).hexdigest()
+    existing = (
+        await db.execute(
+            select(Document)
+            .where(Document.content_hash == content_hash, Document.status != "error")
+            .order_by(Document.created_at.desc())
+        )
+    ).scalars().first()
+    if existing:
+        logger.info("Duplicate upload (hash=%s); returning existing document %s.", content_hash[:12], existing.id)
+        return existing
+
     file_type = "markdown" if suffix in {".md", ".markdown"} else "pdf"
     doc_id = uuid.uuid4()
     safe_name = f"{doc_id}{suffix}"
@@ -109,6 +132,7 @@ async def upload_document(
         original_filename=file.filename or safe_name,
         file_type=file_type,
         file_size=len(content),
+        content_hash=content_hash,
         status="pending",
     )
     db.add(doc)
